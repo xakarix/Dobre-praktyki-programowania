@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # 1. BROKER WIADOMOŚCI
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # Komunikacja
+      - "15672:15672" # Panel UI (login: guest/guest)
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. SERWIS A - zapis i tworzenie bazy
+  serwis_a:
+    build: ./serwis_a
+    container_name: serwis_a
+    ports:
+      - "5001:5000"
+    environment:
+      - DB_PATH=/data/results.db
+    volumes:
+      - ./db_data:/data 
+
+  # 3. SERWIS B - API 
+  serwis_b_api:
+    build: ./serwis_b
+    container_name: serwis_b_api
+    command: python app.py
+    ports:
+      - "5002:5000"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+
+  #SERWIS B - WORKER 
+  serwis_b_worker:
+    build: ./serwis_b
+    command: python consumer.py 
+    deploy:
+      replicas: 2  #ilosc workerow
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      - RABBITMQ_HOST=rabbitmq
+      - SERVICE_A_URL=http://serwis_a:5000/results
